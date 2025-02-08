@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <!-- モバイル向けビューポート設定 -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Web Tetris Game</title>
+  <style>
+    /* リセット */
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      height: 100%;
+      background: #222;
+      font-family: sans-serif;
+      color: #fff;
+    }
+    /* コンテナ（全体レイアウト） */
+    .container {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      padding: 10px;
+    }
+    /* ヘッダー：上部にルール・Pause ボタンとスコア表示 */
+    .header {
+      display: flex;
+      justify-content: space-around;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+    .header .btn {
+      background: #0066cc;
+      border: none;
+      padding: 10px 20px;
+      font-size: 16px;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+    #scoreDisplay { font-size: 18px; }
+    /* キャンバスラッパー（中央部分） */
+    .canvas-wrapper {
+      flex: 1;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+    canvas {
+      border: 1px solid #000;
+      background: #eee;
+      width: 90vw;
+      max-width: 320px;
+      aspect-ratio: 1 / 2;
+    }
+    /* モバイル用操作ボタン（下部・2段配置） */
+    .mobile-controls {
+      margin-top: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    .control-row {
+      display: flex;
+      justify-content: space-around;
+    }
+    .control-btn {
+      background: #444;
+      border: none;
+      padding: 15px;
+      font-size: 20px;
+      border-radius: 5px;
+      color: #fff;
+      flex: 1;
+      max-width: 80px;
+      cursor: pointer;
+    }
+    /* モーダル（ルール＆ゲームオーバー） */
+    .modal {
+      display: none;
+      position: fixed;
+      z-index: 1000;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.5);
+      justify-content: center;
+      align-items: center;
+    }
+    .modal-content {
+      background: #fff;
+      color: #000;
+      padding: 20px;
+      border-radius: 5px;
+      max-width: 90%;
+    }
+    .close-btn {
+      background: #cc0000;
+      border: none;
+      color: #fff;
+      padding: 5px 10px;
+      font-size: 14px;
+      border-radius: 3px;
+      cursor: pointer;
+      float: right;
+    }
+    /* 画面幅が狭い場合（スマホ用） */
+    @media (max-width: 480px) {
+      canvas { max-width: 240px; }
+      .header .btn, .control-btn { font-size: 14px; padding: 10px; }
+    }
+    /* PC用調整：画面幅768px以上は中央寄せ、モバイル操作ボタン非表示 */
+    @media (min-width: 768px) {
+      .container { max-width: 400px; margin: 0 auto; }
+      .mobile-controls { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <!-- 音声要素（各自の音声ファイルを用意してください） -->
+  <audio id="bgm" src="start_bgm.mp3" loop></audio>
+  <audio id="gameoverBGM" src="gameover_bgm.mp3"></audio>
+  <audio id="clearSE" src="clear_se.mp3"></audio>
+
+  <div class="container">
+    <!-- ヘッダー -->
+    <div class="header">
+      <button class="btn" id="openRules">ルール説明</button>
+      <button class="btn" id="pauseButton">Pause</button>
+      <div id="scoreDisplay">Score: 0</div>
+    </div>
+    <!-- キャンバスラッパー -->
+    <div class="canvas-wrapper">
+      <canvas id="tetris"></canvas>
+    </div>
+    <!-- モバイル用操作ボタン（PCでは非表示） -->
+    <div class="mobile-controls">
+      <!-- 上段：左右移動＆落下 -->
+      <div class="control-row">
+        <button class="control-btn" id="leftBtn">←</button>
+        <button class="control-btn" id="downBtn">↓</button>
+        <button class="control-btn" id="rightBtn">→</button>
+      </div>
+      <!-- 下段：回転 -->
+      <div class="control-row">
+        <button class="control-btn" id="rotateLeftBtn">↺</button>
+        <button class="control-btn" id="rotateRightBtn">↻</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ルール説明モーダル -->
+  <div class="modal" id="rulesModal">
+    <div class="modal-content">
+      <button class="close-btn" id="closeRules">閉じる</button>
+      <h2>テトリスのルール</h2>
+      <p>1. ブロックは上から降ってきます。</p>
+      <p>2. 操作方法：</p>
+      <ul>
+        <li>キーボード：←/→で左右移動、↓で落下、Qで反時計回り、Wで時計回り</li>
+        <li>モバイル：下段の操作ボタンをご利用ください</li>
+      </ul>
+      <p>3. 横一列が埋まるとその行は消去され、スコアが加算されます。</p>
+      <p>4. ピースが画面上部に達するとゲームオーバーです。</p>
+    </div>
+  </div>
+
+  <!-- ゲームオーバーモーダル -->
+  <div class="modal" id="gameOverModal">
+    <div class="modal-content">
+      <h2>ゲームオーバー</h2>
+      <p>あなたの得点は…<span class="game-over-score"></span>点！</p>
+      <button class="close-btn" id="restartGame">再スタート</button>
+    </div>
+  </div>
+
+  <script>
+    // =============================================
+    // ① 音声要素取得
+    // =============================================
+    const bgm = document.getElementById('bgm');
+    const gameoverBGM = document.getElementById('gameoverBGM');
+    const clearSE = document.getElementById('clearSE');
+
+    // =============================================
+    // ② キャンバスの内部解像度・グリッドサイズの設定
+    // =============================================
+    const canvas = document.getElementById('tetris');
+    let grid = 32;
+    if (window.innerWidth < 480) {
+      grid = 24;
+      canvas.width = 10 * grid;  // 10列
+      canvas.height = 20 * grid; // 20行
+    } else {
+      canvas.width = 320;
+      canvas.height = 640;
+    }
+    const ctx = canvas.getContext('2d');
+    const cols = canvas.width / grid;
+    const rows = canvas.height / grid;
+
+    // =============================================
+    // ③ モーダル＆ボタンのイベント設定
+    // =============================================
+    const openRulesBtn = document.getElementById('openRules');
+    const closeRulesBtn = document.getElementById('closeRules');
+    const rulesModal = document.getElementById('rulesModal');
+    openRulesBtn.addEventListener('click', () => { rulesModal.style.display = 'flex'; });
+    closeRulesBtn.addEventListener('click', () => { rulesModal.style.display = 'none'; });
+    window.addEventListener('click', (e) => { if (e.target === rulesModal) { rulesModal.style.display = 'none'; }});
+    document.getElementById('restartGame').addEventListener('click', () => { location.reload(); });
+
+    const pauseButton = document.getElementById('pauseButton');
+    let paused = false;
+    pauseButton.addEventListener('click', () => {
+      paused = !paused;
+      pauseButton.innerText = paused ? "Resume" : "Pause";
+    });
+    document.getElementById('leftBtn').addEventListener('click', () => { playerMove(-1); });
+    document.getElementById('rightBtn').addEventListener('click', () => { playerMove(1); });
+    document.getElementById('downBtn').addEventListener('click', () => { playerDrop(); });
+    document.getElementById('rotateLeftBtn').addEventListener('click', () => { playerRotate(-1); });
+    document.getElementById('rotateRightBtn').addEventListener('click', () => { playerRotate(1); });
+
+    // =============================================
+    // ④ テトリスゲーム本体のコード
+    // =============================================
+    function createMatrix(w, h) {
+      const matrix = [];
+      while (h--) { matrix.push(new Array(w).fill(0)); }
+      return matrix;
+    }
+    const arena = createMatrix(cols, rows);
+
+    // ピースの定義（Iブロックは余分な余白をトリムして、縦は4セル、横は4セルになるように）
+    function createPiece(type) {
+      switch (type) {
+        case 'T': return [[0,1,0],[1,1,1]];
+        case 'O': return [[2,2],[2,2]];
+        case 'L': return [[0,0,3],[3,3,3]];
+        case 'J': return [[4,0,0],[4,4,4]];
+        // Iブロックは縦向きは 4×1、横向きは 1×4 となる
+        case 'I': return [[5],[5],[5],[5]];
+        case 'S': return [[0,6,6],[6,6,0]];
+        case 'Z': return [[7,7,0],[0,7,7]];
+        default: return [];
+      }
+    }
+
+    const player = {
+      pos: { x: 0, y: 0 },
+      matrix: null,
+      score: 0,
+    };
+
+    // ※ merge 時、画面外（y < 0）のセルは無視する
+    function merge(arena, player) {
+      player.matrix.forEach((row, y) => {
+        row.forEach((value, x) => {
+          if (value !== 0 && (y + player.pos.y) >= 0) {
+            arena[y + player.pos.y][x + player.pos.x] = value;
+          }
+        });
+      });
+    }
+
+    // ※ 衝突判定時、y座標が負のセルは無視する（ピースの一部が画面外に出ている場合を許容）
+    function collide(arena, player) {
+      const m = player.matrix;
+      const o = player.pos;
+      for (let y = 0; y < m.length; ++y) {
+        for (let x = 0; x < m[y].length; ++x) {
+          if (m[y][x] !== 0) {
+            let arenaY = y + o.y;
+            if (arenaY < 0) continue; // 画面上部は無視
+            if (!arena[arenaY] || arena[arenaY][x + o.x] !== 0) return true;
+          }
+        }
+      }
+      return false;
+    }
+
+    // ■ 回転処理（新たな行列を生成する方式）
+    function rotateMatrix(matrix, dir) {
+      const N = matrix.length;
+      const M = matrix[0].length;
+      const result = [];
+      for (let x = 0; x < M; x++) {
+        result[x] = [];
+        for (let y = 0; y < N; y++) {
+          if (dir > 0) { // 時計回り
+            result[x][y] = matrix[N - 1 - y][x];
+          } else {       // 反時計回り
+            result[x][y] = matrix[y][M - 1 - x];
+          }
+        }
+      }
+      return result;
+    }
+
+    function playerRotate(dir) {
+      const pos = player.pos.x;
+      let offset = 1;
+      const rotated = rotateMatrix(player.matrix, dir);
+      const oldMatrix = player.matrix;
+      player.matrix = rotated;
+      while (collide(arena, player)) {
+        player.pos.x += offset;
+        offset = -(offset + (offset > 0 ? 1 : -1));
+        if (Math.abs(offset) > rotated[0].length) {
+          player.matrix = oldMatrix;
+          player.pos.x = pos;
+          return;
+        }
+      }
+    }
+    // ■ ここまで回転処理の修正
+
+    function playerDrop() {
+      player.pos.y++;
+      if (collide(arena, player)) {
+        player.pos.y--;
+        merge(arena, player);
+        playerReset();
+        arenaSweep();
+      }
+      dropCounter = 0;
+    }
+
+    function playerMove(dir) {
+      player.pos.x += dir;
+      if (collide(arena, player)) { player.pos.x -= dir; }
+    }
+
+    let clearing = false;
+    let clearedRows = [];
+    let clearStartTime = 0;
+    const clearDuration = 300;
+    function arenaSweep() {
+      clearedRows = [];
+      for (let y = arena.length - 1; y >= 0; --y) {
+        if (arena[y].every(cell => cell !== 0)) { clearedRows.push(y); }
+      }
+      if (clearedRows.length > 0) {
+        clearing = true;
+        clearStartTime = performance.now();
+      }
+    }
+    function finishClearEffect() {
+      clearedRows.sort((a, b) => b - a);
+      clearedRows.forEach(rowIndex => {
+        const row = arena.splice(rowIndex, 1)[0].fill(0);
+        arena.unshift(row);
+        player.score += 10;
+      });
+      clearSE.play();
+      clearing = false;
+      clearedRows = [];
+    }
+
+    let gameOverFlag = false;
+    function gameOver() {
+      gameOverFlag = true;
+      bgm.pause();
+      gameoverBGM.play();
+      const gameOverModal = document.getElementById('gameOverModal');
+      gameOverModal.querySelector('.game-over-score').innerText = player.score;
+      gameOverModal.style.display = 'flex';
+    }
+
+    let dropCounter = 0;
+    let dropInterval = 1000;
+    let lastTime = 0;
+    function update(time = 0) {
+      if (paused) { lastTime = time; requestAnimationFrame(update); return; }
+      const deltaTime = time - lastTime;
+      lastTime = time;
+      dropCounter += deltaTime;
+      if (dropCounter > dropInterval) { playerDrop(); }
+      if (clearing && (performance.now() - clearStartTime >= clearDuration)) {
+        finishClearEffect();
+      }
+      draw();
+      updateScoreDisplay();
+      if (!gameOverFlag) { requestAnimationFrame(update); }
+    }
+
+    function drawMatrix(matrix, offset) {
+      matrix.forEach((row, y) => {
+        row.forEach((value, x) => {
+          if (value !== 0) {
+            ctx.fillStyle = colors[value];
+            ctx.fillRect((x + offset.x) * grid, (y + offset.y) * grid, grid - 1, grid - 1);
+          }
+        });
+      });
+    }
+    function draw() {
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      drawMatrix(arena, { x: 0, y: 0 });
+      drawMatrix(player.matrix, player.pos);
+      if (clearing) {
+        let flashProgress = (performance.now() - clearStartTime) / clearDuration;
+        if (flashProgress > 1) flashProgress = 1;
+        const flashAlpha = 1 - flashProgress;
+        ctx.fillStyle = `rgba(255,255,255,${flashAlpha})`;
+        clearedRows.forEach(rowIndex => {
+          ctx.fillRect(0, rowIndex * grid, canvas.width, grid);
+        });
+      }
+    }
+    const colors = [
+      null,
+      'purple',
+      'yellow',
+      'orange',
+      'blue',
+      'cyan',
+      'green',
+      'red'
+    ];
+    document.addEventListener('keydown', event => {
+      switch (event.keyCode) {
+        case 37: playerMove(-1); break;
+        case 39: playerMove(1); break;
+        case 40: playerDrop(); break;
+        case 81: playerRotate(-1); break;
+        case 87: playerRotate(1); break;
+      }
+    });
+    function playerReset() {
+      const pieces = 'TJLOSZI';
+      player.matrix = createPiece(pieces[pieces.length * Math.random() | 0]);
+      // ピースは部分的に画面上部（yが負）に出現することを許容
+      player.pos.y = - (player.matrix.length - 1);
+      player.pos.x = ((arena[0].length / 2) | 0) - ((player.matrix[0].length / 2) | 0);
+      if (collide(arena, player)) { gameOver(); }
+    }
+    function updateScoreDisplay() {
+      document.getElementById('scoreDisplay').innerText = "Score: " + player.score;
+    }
+    // =============================================
+    // ゲーム開始（ユーザー操作後にBGM再生が許可される場合がある）
+    // =============================================
+    bgm.play().catch(() => {});
+    playerReset();
+    update();
+  </script>
+</body>
+</html>
